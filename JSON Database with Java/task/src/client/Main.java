@@ -15,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-class Constant {
+class Constants {
 
     final static String ADDRESS = "127.0.0.1";
 
@@ -35,13 +35,13 @@ public class Main {
 
     private static void initialise(String[] args) {
         inputArguments = new InputArguments(args);
-        File file = new File(Constant.PATH_TO_DATA);
+        File file = new File(Constants.PATH_TO_DATA);
         file.getParentFile().mkdirs();
     }
 
     private static void runClient() {
         try (
-                Socket socket = new Socket(InetAddress.getByName(Constant.ADDRESS), Constant.PORT);
+                Socket socket = new Socket(InetAddress.getByName(Constants.ADDRESS), Constants.PORT);
                 DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
                 DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
                 ) {
@@ -86,9 +86,7 @@ class InputArguments {
     public String parseIntoJson() {
         if (!Objects.equals(fileName, null)) {
             try {
-                String input = new String(Files.readAllBytes(Paths.get(Constant.PATH_TO_DATA + fileName)));
-                System.out.println(input);
-                return input;
+                return new String(Files.readAllBytes(Paths.get(Constants.PATH_TO_DATA + fileName)));
             } catch (Exception e) {
                 e.printStackTrace();
                 return null;

@@ -3,7 +3,6 @@ package server;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.google.gson.*;
-import com.google.gson.reflect.TypeToken;
 
 import java.io.*;
 import java.net.InetAddress;
@@ -20,7 +19,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-class Constant {
+class Constants {
 
     final static int POSITIVE = 1;
 
@@ -86,10 +85,11 @@ public class Main {
 
     private static void initialise(String[] args) {
         inputArguments = new InputArguments(args);
-        File file = new File(Constant.PATH_TO_DATA);
-        file.getParentFile().mkdirs();
+        File file = new File(Constants.PATH_TO_DATA);
         try {
-            Files.write(Path.of(Constant.PATH_TO_DATA), new byte[0]);
+            if(file.getParentFile().mkdirs()) {
+                Files.write(Path.of(Constants.PATH_TO_DATA), new byte[0]);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -97,9 +97,9 @@ public class Main {
 
     private static void runServer() {
         try {
-            serverSocket = new ServerSocket(Constant.PORT, Constant.BACKLOG, InetAddress.getByName(Constant.ADDRESS));
+            serverSocket = new ServerSocket(Constants.PORT, Constants.BACKLOG, InetAddress.getByName(Constants.ADDRESS));
             System.out.println("Server started!");
-            ExecutorService executor = Executors.newFixedThreadPool(Constant.POOL_SIZE);
+            ExecutorService executor = Executors.newFixedThreadPool(Constants.POOL_SIZE);
 
             while (!exitFlag) {
                 try {
@@ -127,7 +127,7 @@ public class Main {
         }
     }
 
-    public static void shutdown() {
+    public static void shutdownServer() {
         exitFlag = true;
         try {
             if (serverSocket != null) {
@@ -158,25 +158,21 @@ class InputArguments {
 
 class handleSocket implements Runnable {
 
-    private Socket socket;
+    private final Socket socket;
 
-    private String output = "";
+    private final Map<String, String> outputMap = new LinkedHashMap<>();
 
-    private Map<String, String> outputMap = new LinkedHashMap<>();
+    private final Lock writerLock;
 
-    private Lock writerLock;
+    private final Lock readerLock;
 
-    private Lock readerLock;
-
-    private String filePath;
-
-    private String input;
+    private final String filePath;
 
     public handleSocket(Socket socket) {
         this.socket = socket;
         this.writerLock = Main.getWriteLock();
         this.readerLock = Main.getReadLock();
-        this.filePath = Constant.PATH_TO_DATA;
+        this.filePath = Constants.PATH_TO_DATA;
     }
 
     @Override
@@ -196,7 +192,7 @@ class handleSocket implements Runnable {
             }
             JsonObject jsonObject = advancedParseFromJson(input);
             handleRequest(jsonObject);
-            output = advancedParseToJson(outputMap);
+            String output = advancedParseToJson(outputMap);
             dataOutputStream.writeUTF(output);
             if (Main.getInputArguments().getDebug()){
                 System.out.printf("Sent: %s\n", output);
@@ -211,10 +207,6 @@ class handleSocket implements Runnable {
                 e.printStackTrace();
             }
         }
-    }
-
-    private Map<String, String> parseFromJson(String input) {
-        return new Gson().fromJson(input, new TypeToken<Map<String, String>>(){}.getType());
     }
 
     private JsonObject advancedParseFromJson(String input) {
@@ -305,12 +297,12 @@ class handleSocket implements Runnable {
                 newData.add(key.getAsString(), value);
             }
             if(writeToJson(newData)) {
-                return Constant.POSITIVE;
+                return Constants.POSITIVE;
             } else {
-                return Constant.ERROR;
+                return Constants.ERROR;
             }
         }
-        return Constant.NEGATIVE;
+        return Constants.NEGATIVE;
     }
 
     private boolean writeToJson(JsonObject newData) {
@@ -349,6 +341,7 @@ class handleSocket implements Runnable {
         if (checkIfNotNull(key)) {
             JsonObject database = readFromJson();
             if (checkIfNotNull(database)){
+                Path path = Path.of(filePath);
                 if(key.isJsonArray()){
                     JsonObject temp = database;
                     JsonArray keyArray = key.getAsJsonArray();
@@ -362,41 +355,41 @@ class handleSocket implements Runnable {
                                     if (checkIfNotNull(temp.remove(k.getAsString()))) {
                                         try {
                                             writerLock.lock();
-                                            Files.write(Path.of(filePath), new byte[0]);
+                                            Files.write(path, new byte[0]);
                                             writerLock.unlock();
                                             writeToJson(database);
-                                            return Constant.POSITIVE;
+                                            return Constants.POSITIVE;
                                         } catch (Exception e) {
                                             e.printStackTrace();
                                         }
                                     }
-                                    return Constant.NEGATIVE;
+                                    return Constants.NEGATIVE;
                                 }
                             } else {
                                 temp = temp.getAsJsonObject(k.getAsString());
                             }
                         } else {
-                            return Constant.NEGATIVE;
+                            return Constants.NEGATIVE;
                         }
                     }
                 } else {
                     if (checkIfNotNull(database.remove(key.getAsString()))) {
                         try {
                             writerLock.lock();
-                            Files.write(Path.of(filePath), new byte[0]);
+                            Files.write(path, new byte[0]);
                             writerLock.unlock();
                             writeToJson(database);
-                            return Constant.POSITIVE;
+                            return Constants.POSITIVE;
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
                     }
-                    return Constant.NEGATIVE;
+                    return Constants.NEGATIVE;
                 }
             }
-            return Constant.ERROR;
+            return Constants.ERROR;
         }
-        return Constant.ILLEGAL;
+        return Constants.ILLEGAL;
     }
 
     private void get (JsonElement key) {
@@ -413,66 +406,58 @@ class handleSocket implements Runnable {
                         if (checkIfNotNull(valuePlaceholder)) {
                             if (temp.get(k.getAsString()).isJsonPrimitive()) {
                                 if (i == lastIndex) {
-                                    writeToOutputMap(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
-                                    writeToOutputMap(Constant.RESPONSE_VALUE, temp.get(k.getAsString()).getAsJsonPrimitive().getAsString());
+                                    writeToOutputMap(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
+                                    writeToOutputMap(Constants.RESPONSE_VALUE, temp.get(k.getAsString()).getAsJsonPrimitive().getAsString());
                                     return;
                                 }
                             } else {
                                 temp = temp.getAsJsonObject(k.getAsString());
                             }
                         } else {
-                            writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                            writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_NO_KEY);
+                            writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                            writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_NO_KEY);
                             return;
                         }
                     }
                     if (!Objects.equals(temp, database)) {
-                        writeToOutputMap(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
-                        if (temp.isJsonObject()) {
-                            writeToOutputMap(Constant.RESPONSE_VALUE, temp.toString());
-                        } else {
-                            writeToOutputMap(Constant.RESPONSE_VALUE, temp.toString());
-                        }
-                        return;
+                        writeToOutputMap(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
+                        writeToOutputMap(Constants.RESPONSE_VALUE, temp.toString());
                     } else {
-                        writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                        writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_NO_KEY);
-                        return;
+                        writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                        writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_NO_KEY);
                     }
                 } else {
                     JsonElement value = database.get(key.toString());
                     if (checkIfNotNull(value)) {
-                        writeToOutputMap(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
-                        writeToOutputMap(Constant.RESPONSE_VALUE, value.toString());
-                        return;
+                        writeToOutputMap(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
+                        writeToOutputMap(Constants.RESPONSE_VALUE, value.toString());
                     } else {
-                        writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                        writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_NO_KEY);
-                        return;
+                        writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                        writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_NO_KEY);
                     }
                 }
             } else {
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_NO_KEY);
-                return;
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_NO_KEY);
             }
+            return;
         }
-        writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-        writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_ILLEGAL);
+        writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+        writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_ILLEGAL);
     }
 
     private void set(JsonElement key, JsonElement value) {
         switch (setInJson(key, value)) {
-            case Constant.POSITIVE:
-                writeToOutputMap(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
+            case Constants.POSITIVE:
+                writeToOutputMap(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
                 break;
-            case Constant.NEGATIVE:
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_ILLEGAL);
+            case Constants.NEGATIVE:
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_ILLEGAL);
                 break;
-            case Constant.ERROR:
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_DATABASE_ERROR);
+            case Constants.ERROR:
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_DATABASE_ERROR);
                 break;
         }
     }
@@ -480,27 +465,27 @@ class handleSocket implements Runnable {
     private void delete(JsonElement key) {
         switch (deleteFromJson(key)) {
             case 1:
-                writeToOutputMap(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
                 break;
             case 0:
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_NO_KEY);
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_NO_KEY);
                 break;
             case -1:
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_DATABASE_ERROR);
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_DATABASE_ERROR);
                 break;
             case -2:
-                writeToOutputMap(Constant.RESPONSE, Constant.ERROR_MESSAGE);
-                writeToOutputMap(Constant.RESPONSE_REASON, Constant.RESPONSE_REASON_ILLEGAL);
+                writeToOutputMap(Constants.RESPONSE, Constants.ERROR_MESSAGE);
+                writeToOutputMap(Constants.RESPONSE_REASON, Constants.RESPONSE_REASON_ILLEGAL);
                 break;
         }
 
     }
 
     private void exit() {
-        Main.shutdown();
-        outputMap.put(Constant.RESPONSE, Constant.SUCCESS_MESSAGE);
+        Main.shutdownServer();
+        outputMap.put(Constants.RESPONSE, Constants.SUCCESS_MESSAGE);
     }
 
     private boolean checkIfNotNull(Object input) {
